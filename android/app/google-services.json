@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "848149206202",
+    "project_id": "e-teller-bank-mini",
+    "storage_bucket": "e-teller-bank-mini.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:848149206202:android:aa66baa97b738eaed21e83",
+        "android_client_info": {
+          "package_name": "com.tamadev.customer_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQBU_l-6KWaLAEMSRh2H-iSTidAobLvp4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
