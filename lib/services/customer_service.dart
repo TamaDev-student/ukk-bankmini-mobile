@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 
 import '../core/config/api_config.dart';
 import '../models/customer_account.dart';
@@ -368,6 +369,98 @@ class CustomerService {
         .timeout(const Duration(seconds: 15));
 
     return _decodeResponse(response);
+  }
+
+  /// Mengunduh laporan mutasi rekening dalam format PDF.
+  Future<Uint8List> downloadAccountStatement({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    final startStr = DateFormat('yyyy-MM-dd').format(startDate);
+    final endStr = DateFormat('yyyy-MM-dd').format(endDate);
+
+    final uri = Uri.parse('${ApiConfig.baseUrl}/customer/statement/download').replace(
+      queryParameters: {
+        'start_date': startStr,
+        'end_date': endStr,
+      },
+    );
+
+    final token = await _storage.read(key: 'auth_token');
+    if (token == null || token.isEmpty) {
+      throw CustomerApiException(
+        message: 'Sesi login berakhir. Silakan login kembali.',
+        statusCode: 401,
+      );
+    }
+
+    final headers = {
+      'Accept': 'application/pdf, application/json',
+      'Authorization': 'Bearer $token',
+    };
+
+    final response = await _client
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 30));
+
+    if (response.statusCode == 401) {
+      throw CustomerApiException(
+        message: 'Sesi login berakhir. Silakan login kembali.',
+        statusCode: 401,
+      );
+    }
+
+    if (response.statusCode == 403) {
+      throw CustomerApiException(
+        message: 'Akses laporan mutasi rekening tidak diizinkan.',
+        statusCode: 403,
+      );
+    }
+
+    if (response.statusCode == 422) {
+      String message = 'Periode tanggal tidak valid.';
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic> && decoded['message'] != null) {
+          message = decoded['message'].toString();
+        }
+      } catch (_) {}
+      throw CustomerApiException(
+        message: message,
+        statusCode: 422,
+      );
+    }
+
+    if (response.statusCode == 404) {
+      throw CustomerApiException(
+        message: 'Data rekening nasabah tidak ditemukan.',
+        statusCode: 404,
+      );
+    }
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String message = 'Gagal mengunduh laporan (${response.statusCode}).';
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic> && decoded['message'] != null) {
+          message = decoded['message'].toString();
+        }
+      } catch (_) {}
+      throw CustomerApiException(
+        message: message,
+        statusCode: response.statusCode,
+      );
+    }
+
+    final contentType = response.headers['content-type'] ?? '';
+    if (!contentType.toLowerCase().contains('application/pdf')) {
+      throw CustomerApiException(
+        message: 'Format berkas dari server tidak valid (bukan PDF).',
+        statusCode: response.statusCode,
+      );
+    }
+
+    return response.bodyBytes;
   }
 
   Future<void> logout([String? fid]) async {

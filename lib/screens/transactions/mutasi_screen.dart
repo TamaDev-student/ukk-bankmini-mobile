@@ -1,5 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../models/customer_account.dart';
 import '../../models/customer_transaction.dart';
@@ -33,6 +38,7 @@ class _MutasiScreenState extends State<MutasiScreen> {
 
   bool _isBalanceVisible = true;
   bool _isLoading = true;
+  bool _isDownloading = false;
 
   String? _errorMessage;
   String _selectedPeriod = 'Semua Periode';
@@ -737,6 +743,457 @@ class _MutasiScreenState extends State<MutasiScreen> {
     );
   }
 
+  // =====================================================================
+  // SECTION: Unduh Mutasi Rekening (PDF)
+  // =====================================================================
+
+  /// Menampilkan bottom sheet pemilihan periode unduh laporan.
+  void _showDownloadStatementSheet() {
+    int selectedOption = 0;
+    DateTime? customStart;
+    DateTime? customEnd;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      backgroundColor: surfaceColor,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (innerContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(innerContext).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle bar
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: borderColor,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Title
+                  const Row(
+                    children: [
+                      Icon(Icons.download_rounded, color: primaryBlue, size: 22),
+                      SizedBox(width: 8),
+                      Text(
+                        'Unduh Mutasi Rekening',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Unduh laporan transaksi rekeningmu dalam format PDF.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: secondaryTextColor,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Period options
+                  ..._buildPeriodOptions(selectedOption, (val) {
+                    setSheetState(() => selectedOption = val);
+                  }),
+
+                  // Custom date range picker
+                  if (selectedOption == 4) ...[
+                    const SizedBox(height: 12),
+                    _buildCustomDateRange(
+                      customStart,
+                      customEnd,
+                      (start, end) {
+                        setSheetState(() {
+                          customStart = start;
+                          customEnd = end;
+                        });
+                      },
+                    ),
+                  ],
+
+                  const SizedBox(height: 20),
+
+                  // Download button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: _isDownloading
+                          ? null
+                          : () {
+                              final range = _resolveDateRange(
+                                  selectedOption, customStart, customEnd);
+                              if (range == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                        'Pilih tanggal awal dan akhir terlebih dahulu.'),
+                                    backgroundColor: dangerColor,
+                                  ),
+                                );
+                                return;
+                              }
+                              Navigator.pop(sheetContext);
+                              _executeDownload(range.$1, range.$2);
+                            },
+                      icon: _isDownloading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.picture_as_pdf_rounded, size: 20),
+                      label: Text(
+                        _isDownloading ? 'Menyiapkan...' : 'Unduh PDF',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryBlue,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        disabledBackgroundColor: primaryBlue.withValues(alpha: 0.5),
+                        disabledForegroundColor: Colors.white70,
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Membuat daftar opsi periode laporan.
+  List<Widget> _buildPeriodOptions(
+      int selectedOption, ValueChanged<int> onChanged) {
+    final options = [
+      'Bulan Ini',
+      'Bulan Lalu',
+      '3 Bulan Terakhir',
+      'Tahun Ini',
+      'Rentang Tanggal Khusus',
+    ];
+
+    return List.generate(options.length, (index) {
+      final isSelected = selectedOption == index;
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: InkWell(
+          onTap: () => onChanged(index),
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: isSelected ? primaryBlue.withValues(alpha: 0.08) : Colors.transparent,
+              border: Border.all(
+                color: isSelected ? primaryBlue : borderColor.withValues(alpha: 0.5),
+                width: isSelected ? 1.5 : 1,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isSelected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  color: isSelected ? primaryBlue : secondaryTextColor,
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  options[index],
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected ? primaryBlue : textColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  /// Membangun widget pemilihan rentang tanggal khusus.
+  Widget _buildCustomDateRange(
+    DateTime? customStart,
+    DateTime? customEnd,
+    void Function(DateTime? start, DateTime? end) onChange,
+  ) {
+    final dateFormat = DateFormat('dd MMM yyyy', 'id_ID');
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: lightBlue,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Pilih rentang tanggal:',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: secondaryTextColor,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _buildDatePickerButton(
+                  label: 'Dari',
+                  value: customStart != null
+                      ? dateFormat.format(customStart)
+                      : 'Pilih',
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: customStart ?? DateTime.now(),
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime.now(),
+                      locale: const Locale('id', 'ID'),
+                    );
+                    if (picked != null) {
+                      onChange(picked, customEnd);
+                    }
+                  },
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8),
+                child: Icon(Icons.arrow_forward, size: 16, color: secondaryTextColor),
+              ),
+              Expanded(
+                child: _buildDatePickerButton(
+                  label: 'Sampai',
+                  value: customEnd != null
+                      ? dateFormat.format(customEnd)
+                      : 'Pilih',
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: customEnd ?? DateTime.now(),
+                      firstDate: customStart ?? DateTime(2020),
+                      lastDate: DateTime.now(),
+                      locale: const Locale('id', 'ID'),
+                    );
+                    if (picked != null) {
+                      onChange(customStart, picked);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Tombol pemilih tanggal individual.
+  Widget _buildDatePickerButton({
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: borderColor),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 10,
+                color: secondaryTextColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                const Icon(Icons.calendar_today, size: 13, color: primaryBlue),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Menghitung rentang tanggal berdasarkan opsi yang dipilih pengguna.
+  (DateTime, DateTime)? _resolveDateRange(
+    int option,
+    DateTime? customStart,
+    DateTime? customEnd,
+  ) {
+    final now = DateTime.now();
+    switch (option) {
+      case 0: // Bulan Ini
+        return (DateTime(now.year, now.month, 1), now);
+      case 1: // Bulan Lalu
+        final lastMonth = DateTime(now.year, now.month - 1, 1);
+        final endOfLastMonth = DateTime(now.year, now.month, 0);
+        return (lastMonth, endOfLastMonth);
+      case 2: // 3 Bulan Terakhir
+        final threeMonthsAgo = DateTime(now.year, now.month - 3, now.day);
+        return (threeMonthsAgo, now);
+      case 3: // Tahun Ini
+        return (DateTime(now.year, 1, 1), now);
+      case 4: // Custom
+        if (customStart == null || customEnd == null) return null;
+        if (customStart.isAfter(customEnd)) return null;
+        return (customStart, customEnd);
+      default:
+        return null;
+    }
+  }
+
+  /// Mengeksekusi proses unduh laporan mutasi rekening.
+  Future<void> _executeDownload(DateTime startDate, DateTime endDate) async {
+    if (_isDownloading) return;
+
+    setState(() => _isDownloading = true);
+
+    try {
+      final bytes = await _customerService.downloadAccountStatement(
+        startDate: startDate,
+        endDate: endDate,
+      );
+
+      if (!mounted) return;
+
+      // Simpan file PDF ke direktori dokumen aplikasi
+      final dir = await getApplicationDocumentsDirectory();
+      final accountNumber = _account?.accountNumber ?? 'unknown';
+      final startStr = DateFormat('yyyy-MM-dd').format(startDate);
+      final endStr = DateFormat('yyyy-MM-dd').format(endDate);
+      final filename = 'Mutasi_${accountNumber}_${startStr}_$endStr.pdf';
+      final filePath = '${dir.path}/$filename';
+
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Laporan mutasi berhasil diunduh.'),
+          backgroundColor: successColor,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Buka File',
+            textColor: Colors.white,
+            onPressed: () async {
+              await OpenFilex.open(filePath);
+            },
+          ),
+        ),
+      );
+    } on CustomerApiException catch (e) {
+      if (!mounted) return;
+
+      String message;
+      if (e.statusCode == 401) {
+        message = 'Sesi login berakhir. Silakan login kembali.';
+      } else if (e.statusCode == 403) {
+        message = 'Akses laporan mutasi tidak diizinkan.';
+      } else if (e.statusCode == 422) {
+        message = e.message;
+      } else {
+        message = 'Gagal mengunduh laporan. Silakan coba kembali.';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: dangerColor,
+        ),
+      );
+    } on SocketException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Koneksi internet bermasalah. Silakan coba kembali.'),
+          backgroundColor: dangerColor,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Gagal mengunduh laporan. Silakan coba kembali.'),
+          backgroundColor: dangerColor,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isDownloading = false);
+      }
+    }
+  }
+
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       backgroundColor: surfaceColor,
@@ -767,6 +1224,29 @@ class _MutasiScreenState extends State<MutasiScreen> {
           ),
         ],
       ),
+      actions: [
+        Tooltip(
+          message: 'Unduh Mutasi Rekening',
+          child: IconButton(
+            onPressed: _isDownloading ? null : _showDownloadStatementSheet,
+            icon: _isDownloading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: primaryBlue,
+                    ),
+                  )
+                : const Icon(
+                    Icons.download_rounded,
+                    color: primaryBlue,
+                    size: 24,
+                  ),
+          ),
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 
