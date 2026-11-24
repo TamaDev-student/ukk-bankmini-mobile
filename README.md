@@ -8,10 +8,12 @@ Aplikasi terintegrasi dengan backend Laravel REST API untuk mengelola autentikas
 
 - **Autentikasi Nasabah** — Login untuk mengakses akun nasabah.
 - **Informasi Rekening** — Menampilkan informasi rekening dan saldo nasabah.
-- **Riwayat Transaksi** — Melihat transaksi yang tercatat pada rekening.
+- **Riwayat Transaksi** — Melihat, mencari, mengelompokkan, dan menyaring transaksi berdasarkan jenis serta periode.
+- **Filter Mutasi Fleksibel** — Mendukung periode bulanan, 3 bulan terakhir, tahunan, dan rentang tanggal khusus.
 - **Konfirmasi Transaksi** — Mendukung konfirmasi transaksi melalui aplikasi sesuai alur dan otorisasi backend.
 - **Integrasi REST API** — Berkomunikasi dengan backend Laravel menggunakan API.
 - **Keamanan Akses** — Menggunakan autentikasi berbasis token untuk mengakses endpoint yang memerlukan autentikasi.
+- **Lokalisasi Bahasa Indonesia** — Menampilkan widget tanggal dan komponen Material dalam format Indonesia.
 
 ## 🛠️ Teknologi
 
@@ -81,6 +83,14 @@ flutter pub get
 ### 3. Konfigurasi Backend API
 
 Sesuaikan konfigurasi base URL API pada aplikasi dengan alamat backend Laravel yang digunakan.
+
+Konfigurasi base URL dapat disediakan melalui `--dart-define`:
+
+```bash
+flutter run --dart-define=API_BASE_URL=https://contoh-domain.my.id
+```
+
+Nilai base URL akan dinormalisasi otomatis oleh aplikasi. Trailing slash dan akhiran `/api` akan dibersihkan atau ditambahkan sehingga endpoint login tetap mengarah ke `{baseUrl}/api/login`.
 
 Contoh alamat untuk pengembangan lokal:
 

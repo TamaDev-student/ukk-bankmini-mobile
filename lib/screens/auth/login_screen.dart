@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
@@ -90,6 +93,16 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
 
+    } on TimeoutException {
+      if (!mounted) return;
+      setState(() {
+        _loginError = 'Koneksi ke server timeout. Silakan periksa jaringan Anda.';
+      });
+    } on SocketException {
+      if (!mounted) return;
+      setState(() {
+        _loginError = 'Tidak dapat terhubung ke server. Periksa koneksi internet Anda.';
+      });
     } on Exception catch (error) {
       if (!mounted) return;
 

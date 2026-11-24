@@ -59,6 +59,10 @@ class _MutasiScreenState extends State<MutasiScreen> {
     super.dispose();
   }
 
+  // ============================================================
+  // DATA
+  // ============================================================
+
   Future<void> _loadData() async {
     if (!mounted) return;
 
@@ -68,7 +72,7 @@ class _MutasiScreenState extends State<MutasiScreen> {
     });
 
     try {
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         _customerService.getAccount(),
         _customerService.getTransactions(),
       ]);
@@ -84,17 +88,29 @@ class _MutasiScreenState extends State<MutasiScreen> {
       if (!mounted) return;
 
       setState(() {
-        _errorMessage = error.toString().replaceFirst('Exception: ', '');
+        _errorMessage = _cleanErrorMessage(error);
         _isLoading = false;
       });
     }
   }
 
+  String _cleanErrorMessage(Object error) {
+    return error
+        .toString()
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('Bad state: ', '')
+        .trim();
+  }
+
+  // ============================================================
+  // FORMAT
+  // ============================================================
+
   String _formatRupiah(int amount) {
     final digits = amount.abs().toString();
     final buffer = StringBuffer();
 
-    for (int i = 0; i < digits.length; i++) {
+    for (var i = 0; i < digits.length; i++) {
       buffer.write(digits[i]);
 
       final remaining = digits.length - i - 1;
@@ -107,7 +123,10 @@ class _MutasiScreenState extends State<MutasiScreen> {
     return 'Rp $buffer';
   }
 
-  String _formatTransactionAmount(int amount, {required bool isCredit}) {
+  String _formatTransactionAmount(
+    int amount, {
+    required bool isCredit,
+  }) {
     final prefix = isCredit ? '+ ' : '- ';
     return '$prefix${_formatRupiah(amount)}';
   }
@@ -129,7 +148,28 @@ class _MutasiScreenState extends State<MutasiScreen> {
     ];
 
     final local = date.toLocal();
+
     return '${local.day} ${months[local.month - 1]} ${local.year}';
+  }
+
+  String _formatDateForPicker(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+
+    return '${date.day.toString().padLeft(2, '0')} '
+        '${months[date.month - 1]} ${date.year}';
   }
 
   String _formatTime(DateTime date) {
@@ -140,10 +180,22 @@ class _MutasiScreenState extends State<MutasiScreen> {
     return '$hour:$minute';
   }
 
+  DateTime _dateOnly(DateTime date) {
+    final local = date.toLocal();
+    return DateTime(local.year, local.month, local.day);
+  }
+
   String _dateGroupKey(DateTime date) {
     final local = date.toLocal();
-    return '${local.year}-${local.month}-${local.day}';
+
+    return '${local.year}-'
+        '${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')}';
   }
+
+  // ============================================================
+  // FILTER TRANSAKSI
+  // ============================================================
 
   bool _matchesPeriod(DateTime date) {
     final now = DateTime.now();
@@ -170,11 +222,11 @@ class _MutasiScreenState extends State<MutasiScreen> {
   List<CustomerTransaction> get _filteredTransactions {
     final query = _searchController.text.trim().toLowerCase();
 
-    return _transactions.where((transaction) {
+    final filtered = _transactions.where((transaction) {
       final isDeposit = transaction.transactionType == 'deposit';
       final isWithdrawal = transaction.transactionType == 'withdrawal';
 
-      final matchesFilter = switch (_selectedFilter) {
+      final matchesType = switch (_selectedFilter) {
         1 => isDeposit,
         2 => isWithdrawal,
         _ => true,
@@ -185,14 +237,21 @@ class _MutasiScreenState extends State<MutasiScreen> {
         transaction.transactionTypeLabel,
         transaction.statusLabel,
         transaction.amount.toString(),
+        _formatRupiah(transaction.amount),
         _formatDate(transaction.transactionDate),
         _formatTime(transaction.transactionDate),
       ].join(' ').toLowerCase();
 
-      return matchesFilter &&
+      return matchesType &&
           searchableText.contains(query) &&
           _matchesPeriod(transaction.transactionDate);
-    }).toList()..sort((a, b) => b.transactionDate.compareTo(a.transactionDate));
+    }).toList();
+
+    filtered.sort(
+      (a, b) => b.transactionDate.compareTo(a.transactionDate),
+    );
+
+    return filtered;
   }
 
   Map<String, List<CustomerTransaction>> get _groupedTransactions {
@@ -208,11 +267,21 @@ class _MutasiScreenState extends State<MutasiScreen> {
     return groups;
   }
 
-  void _showMessage(String message) {
+  // ============================================================
+  // NOTIFIKASI DAN REKENING
+  // ============================================================
+
+  void _showMessage(String message, {Color? backgroundColor}) {
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(message),
+          backgroundColor: backgroundColor,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
   }
 
@@ -224,11 +293,16 @@ class _MutasiScreenState extends State<MutasiScreen> {
       return;
     }
 
-    await Clipboard.setData(ClipboardData(text: accountNumber));
+    await Clipboard.setData(
+      ClipboardData(text: accountNumber),
+    );
 
     if (!mounted) return;
 
-    _showMessage('Nomor rekening berhasil disalin.');
+    _showMessage(
+      'Nomor rekening berhasil disalin.',
+      backgroundColor: successColor,
+    );
   }
 
   void _onNavigationTap(int index) {
@@ -240,7 +314,6 @@ class _MutasiScreenState extends State<MutasiScreen> {
     }
 
     if (index == 0) {
-      // Kembali ke Dashboard yang sebelumnya dibuka.
       Navigator.of(context).pop();
       return;
     }
@@ -248,14 +321,19 @@ class _MutasiScreenState extends State<MutasiScreen> {
     if (index == 2) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const PersetujuanScreen()),
+        MaterialPageRoute(
+          builder: (_) => const PersetujuanScreen(),
+        ),
       );
       return;
     }
+
     if (index == 3) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const ProfileScreen()),
+        MaterialPageRoute(
+          builder: (_) => const ProfileScreen(),
+        ),
       );
     }
   }
@@ -268,6 +346,10 @@ class _MutasiScreenState extends State<MutasiScreen> {
     });
   }
 
+  // ============================================================
+  // FILTER PERIODE RIWAYAT
+  // ============================================================
+
   void _showPeriodPicker() {
     showModalBottomSheet<void>(
       context: context,
@@ -275,10 +357,9 @@ class _MutasiScreenState extends State<MutasiScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(24),
-          bottom: Radius.circular(24),
         ),
       ),
-      builder: (context) {
+      builder: (sheetContext) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -312,10 +393,16 @@ class _MutasiScreenState extends State<MutasiScreen> {
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.calendar_today_rounded, color: primaryBlue),
+      leading: const Icon(
+        Icons.calendar_today_rounded,
+        color: primaryBlue,
+      ),
       title: Text(title),
       trailing: isSelected
-          ? const Icon(Icons.check_circle, color: primaryBlue)
+          ? const Icon(
+              Icons.check_circle,
+              color: primaryBlue,
+            )
           : null,
       onTap: () {
         Navigator.pop(context);
@@ -327,36 +414,49 @@ class _MutasiScreenState extends State<MutasiScreen> {
     );
   }
 
+  // ============================================================
+  // STATUS TRANSAKSI
+  // ============================================================
+
   ({Color bg, Color text, String label}) _statusStyle(
     CustomerTransaction transaction,
   ) {
-    switch (transaction.status) {
+    switch (transaction.status.toLowerCase()) {
       case 'approved':
         return (
           bg: const Color(0xFFD1FAE5),
           text: successColor,
           label: 'Berhasil',
         );
+
       case 'pending':
         return (
           bg: const Color(0xFFFEF3C7),
           text: const Color(0xFFB45309),
           label: 'Menunggu Konfirmasi',
         );
+
       case 'rejected':
         return (
           bg: const Color(0xFFFFE4E6),
           text: dangerColor,
           label: 'Ditolak',
         );
+
       case 'failed':
-        return (bg: const Color(0xFFFFE4E6), text: dangerColor, label: 'Gagal');
+        return (
+          bg: const Color(0xFFFFE4E6),
+          text: dangerColor,
+          label: 'Gagal',
+        );
+
       case 'cancelled':
         return (
           bg: const Color(0xFFFEE2E2),
           text: const Color(0xFFB91C1C),
           label: 'Dibatalkan',
         );
+
       default:
         return (
           bg: const Color(0xFFF3F4F6),
@@ -366,527 +466,189 @@ class _MutasiScreenState extends State<MutasiScreen> {
     }
   }
 
-  void _showTransactionDetail(CustomerTransaction transaction) {
-    final detailFuture = _customerService.getTransactionDetail(transaction.id);
+  // ============================================================
+  // DETAIL TRANSAKSI
+  // ============================================================
 
+  void _showTransactionDetail(CustomerTransaction transaction) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) {
-        var isCancelling = false;
-        CustomerTransaction? refreshedTransaction;
-
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return FutureBuilder<CustomerTransaction>(
-              future: detailFuture,
-              initialData: transaction,
-              builder: (context, snapshot) {
-                final currentTransaction =
-                    refreshedTransaction ?? snapshot.data ?? transaction;
-                final isCredit =
-                    currentTransaction.transactionType == 'deposit';
-                final status = _statusStyle(currentTransaction);
-                final date = _formatDate(currentTransaction.transactionDate);
-                final time = _formatTime(currentTransaction.transactionDate);
-
-                return Align(
-                  alignment: Alignment.bottomCenter,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: 560,
-                      maxHeight: MediaQuery.of(context).size.height * 0.88,
-                    ),
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(28),
-                        ),
-                      ),
-                      child: SafeArea(
-                        top: false,
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Center(
-                                child: Container(
-                                  width: 42,
-                                  height: 5,
-                                  decoration: BoxDecoration(
-                                    color: borderColor,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 22),
-
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    'TANDA TERIMA KAS',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1,
-                                      color: secondaryTextColor,
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 5,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: status.bg,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      status.label.toUpperCase(),
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: status.text,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                              if (snapshot.connectionState ==
-                                  ConnectionState.waiting)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 12),
-                                  child: LinearProgressIndicator(
-                                    minHeight: 2,
-                                    color: primaryBlue,
-                                  ),
-                                )
-                              else if (snapshot.hasError)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 12),
-                                  child: Text(
-                                    'Status terbaru tidak dapat dimuat. Data dari riwayat ditampilkan.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: secondaryTextColor,
-                                    ),
-                                  ),
-                                ),
-
-                              const SizedBox(height: 20),
-
-                              Container(
-                                padding: const EdgeInsets.all(20),
-                                decoration: BoxDecoration(
-                                  color: lightBlue,
-                                  borderRadius: BorderRadius.circular(18),
-                                ),
-                                child: Column(
-                                  children: [
-                                    const Text(
-                                      'Nominal Transaksi',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: secondaryTextColor,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      _formatTransactionAmount(
-                                        currentTransaction.amount,
-                                        isCredit: isCredit,
-                                      ),
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
-                                        color: isCredit
-                                            ? successColor
-                                            : dangerColor,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      currentTransaction.transactionTypeLabel,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: primaryBlue,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              const SizedBox(height: 18),
-
-                              _detailRow(
-                                'ID Transaksi',
-                                '#${currentTransaction.id}',
-                              ),
-                              _detailRow(
-                                'Jenis Transaksi',
-                                currentTransaction.transactionTypeLabel,
-                              ),
-                              _detailRow(
-                                'Status',
-                                currentTransaction.statusLabel,
-                              ),
-                              _detailRow('Tanggal', date),
-                              _detailRow(
-                                'Waktu Transaksi',
-                                '$time WIB',
-                                isLast:
-                                    currentTransaction.rejectionReason == null,
-                              ),
-                              if (currentTransaction.rejectionReason != null)
-                                _detailRow(
-                                  'Alasan',
-                                  currentTransaction.rejectionReason!,
-                                  isLast: true,
-                                ),
-
-                              const SizedBox(height: 22),
-
-                              if (snapshot.connectionState !=
-                                      ConnectionState.waiting &&
-                                  !snapshot.hasError &&
-                                  snapshot.hasData &&
-                                  currentTransaction.isPending)
-                                FilledButton(
-                                  onPressed: isCancelling
-                                      ? null
-                                      : () async {
-                                          final confirmed = await showDialog<bool>(
-                                            context: context,
-                                            builder: (dialogContext) => AlertDialog(
-                                              title: const Text(
-                                                'Batalkan Transaksi?',
-                                              ),
-                                              content: const Text(
-                                                'Apakah kamu yakin ingin membatalkan transaksi ini? Transaksi yang telah dibatalkan tidak dapat diproses kembali.',
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(
-                                                        dialogContext,
-                                                        false,
-                                                      ),
-                                                  child: const Text('Tidak'),
-                                                ),
-                                                FilledButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(
-                                                        dialogContext,
-                                                        true,
-                                                      ),
-                                                  child: const Text(
-                                                    'Ya, Batalkan',
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-
-                                          if (confirmed != true) return;
-
-                                          setSheetState(() {
-                                            isCancelling = true;
-                                          });
-
-                                          try {
-                                            final cancelled =
-                                                await _customerService
-                                                    .cancelTransaction(
-                                                      currentTransaction.id,
-                                                    );
-
-                                            if (!mounted) return;
-
-                                            setSheetState(() {
-                                              refreshedTransaction = cancelled;
-                                              isCancelling = false;
-                                            });
-                                            _showMessage(
-                                              'Transaksi berhasil dibatalkan.',
-                                            );
-                                            await _loadData();
-
-                                            try {
-                                              final latest =
-                                                  await _customerService
-                                                      .getTransactionDetail(
-                                                        currentTransaction.id,
-                                                      );
-                                              if (!mounted) return;
-                                              setSheetState(() {
-                                                refreshedTransaction = latest;
-                                              });
-                                            } catch (error) {
-                                              if (mounted) {
-                                                _showMessage(
-                                                  error.toString().replaceFirst(
-                                                    'Exception: ',
-                                                    '',
-                                                  ),
-                                                );
-                                              }
-                                            }
-                                          } catch (error) {
-                                            if (!mounted) return;
-                                            setSheetState(() {
-                                              isCancelling = false;
-                                            });
-                                            _showMessage(
-                                              error.toString().replaceFirst(
-                                                'Exception: ',
-                                                '',
-                                              ),
-                                            );
-                                          }
-                                        },
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: dangerColor,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 15,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  child: isCancelling
-                                      ? const SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : const Text('Batalkan Transaksi'),
-                                ),
-
-                              const SizedBox(height: 10),
-
-                              FilledButton(
-                                onPressed: () => Navigator.pop(context),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: primaryBlue,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 15,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: const Text('Tutup Rincian'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            );
-          },
+      builder: (sheetContext) {
+        return _TransactionDetailSheet(
+          transaction: transaction,
+          customerService: _customerService,
+          formatDate: _formatDate,
+          formatTime: _formatTime,
+          formatRupiah: _formatRupiah,
+          formatTransactionAmount: _formatTransactionAmount,
+          statusStyle: _statusStyle,
+          showMessage: _showMessage,
+          onTransactionUpdated: _loadData,
         );
       },
     );
   }
 
-  Widget _detailRow(
-    String label,
-    String value, {
-    bool isLast = false,
-    bool isBold = false,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 13),
-      decoration: BoxDecoration(
-        border: isLast
-            ? null
-            : const Border(bottom: BorderSide(color: Color(0xFFE2E7FF))),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 4,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 11, color: secondaryTextColor),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 6,
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: TextStyle(
-                fontSize: 11,
-                color: textColor,
-                fontWeight: isBold ? FontWeight.bold : FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
-  // =====================================================================
-  // SECTION: Unduh Mutasi Rekening (PDF)
-  // =====================================================================
+  // ============================================================
+  // DOWNLOAD PDF: PILIH PERIODE
+  // ============================================================
 
-  /// Menampilkan bottom sheet pemilihan periode unduh laporan.
   void _showDownloadStatementSheet() {
+    if (_isDownloading) return;
+
     int selectedOption = 0;
     DateTime? customStart;
     DateTime? customEnd;
 
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       backgroundColor: surfaceColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(24),
+        ),
+      ),
       builder: (sheetContext) {
         return StatefulBuilder(
           builder: (innerContext, setSheetState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(innerContext).viewInsets.bottom + 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Handle bar
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: borderColor,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Title
-                  const Row(
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  20,
+                  20,
+                  MediaQuery.of(innerContext).viewInsets.bottom + 20,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.download_rounded, color: primaryBlue, size: 22),
-                      SizedBox(width: 8),
-                      Text(
-                        'Unduh Mutasi Rekening',
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: borderColor,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Row(
+                        children: [
+                          Icon(
+                            Icons.download_rounded,
+                            color: primaryBlue,
+                            size: 22,
+                          ),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Unduh Mutasi Rekening',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: textColor,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Unduh laporan transaksi rekeningmu dalam format PDF.',
                         style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: textColor,
+                          fontSize: 12,
+                          color: secondaryTextColor,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      ..._buildPeriodOptions(
+                        selectedOption,
+                        (value) {
+                          setSheetState(() {
+                            selectedOption = value;
+                          });
+                        },
+                      ),
+                      if (selectedOption == 4) ...[
+                        const SizedBox(height: 12),
+                        _buildCustomDateRange(
+                          customStart: customStart,
+                          customEnd: customEnd,
+                          onChange: (start, end) {
+                            setSheetState(() {
+                              customStart = start;
+                              customEnd = end;
+                            });
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          onPressed: _isDownloading
+                              ? null
+                              : () {
+                                  final range = _resolveDateRange(
+                                    selectedOption,
+                                    customStart,
+                                    customEnd,
+                                  );
+
+                                  if (range == null) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Periksa kembali tanggal awal dan akhir.',
+                                        ),
+                                        backgroundColor: dangerColor,
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                    return;
+                                  }
+
+                                  Navigator.pop(sheetContext);
+
+                                  _executeDownload(
+                                    range.$1,
+                                    range.$2,
+                                  );
+                                },
+                          icon: const Icon(
+                            Icons.picture_as_pdf_rounded,
+                            size: 20,
+                          ),
+                          label: const Text(
+                            'Unduh PDF',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryBlue,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor:
+                                primaryBlue.withValues(alpha: 0.5),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 0,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Unduh laporan transaksi rekeningmu dalam format PDF.',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: secondaryTextColor,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Period options
-                  ..._buildPeriodOptions(selectedOption, (val) {
-                    setSheetState(() => selectedOption = val);
-                  }),
-
-                  // Custom date range picker
-                  if (selectedOption == 4) ...[
-                    const SizedBox(height: 12),
-                    _buildCustomDateRange(
-                      customStart,
-                      customEnd,
-                      (start, end) {
-                        setSheetState(() {
-                          customStart = start;
-                          customEnd = end;
-                        });
-                      },
-                    ),
-                  ],
-
-                  const SizedBox(height: 20),
-
-                  // Download button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: _isDownloading
-                          ? null
-                          : () {
-                              final range = _resolveDateRange(
-                                  selectedOption, customStart, customEnd);
-                              if (range == null) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                        'Pilih tanggal awal dan akhir terlebih dahulu.'),
-                                    backgroundColor: dangerColor,
-                                  ),
-                                );
-                                return;
-                              }
-                              Navigator.pop(sheetContext);
-                              _executeDownload(range.$1, range.$2);
-                            },
-                      icon: _isDownloading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.picture_as_pdf_rounded, size: 20),
-                      label: Text(
-                        _isDownloading ? 'Menyiapkan...' : 'Unduh PDF',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryBlue,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        disabledBackgroundColor: primaryBlue.withValues(alpha: 0.5),
-                        disabledForegroundColor: Colors.white70,
-                        elevation: 0,
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             );
           },
@@ -895,10 +657,11 @@ class _MutasiScreenState extends State<MutasiScreen> {
     );
   }
 
-  /// Membuat daftar opsi periode laporan.
   List<Widget> _buildPeriodOptions(
-      int selectedOption, ValueChanged<int> onChanged) {
-    final options = [
+    int selectedOption,
+    ValueChanged<int> onChanged,
+  ) {
+    const options = [
       'Bulan Ini',
       'Bulan Lalu',
       '3 Bulan Terakhir',
@@ -908,17 +671,25 @@ class _MutasiScreenState extends State<MutasiScreen> {
 
     return List.generate(options.length, (index) {
       final isSelected = selectedOption == index;
+
       return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.only(bottom: 7),
         child: InkWell(
           onTap: () => onChanged(index),
           borderRadius: BorderRadius.circular(10),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
             decoration: BoxDecoration(
-              color: isSelected ? primaryBlue.withValues(alpha: 0.08) : Colors.transparent,
+              color: isSelected
+                  ? primaryBlue.withValues(alpha: 0.08)
+                  : Colors.transparent,
               border: Border.all(
-                color: isSelected ? primaryBlue : borderColor.withValues(alpha: 0.5),
+                color: isSelected
+                    ? primaryBlue
+                    : borderColor.withValues(alpha: 0.5),
                 width: isSelected ? 1.5 : 1,
               ),
               borderRadius: BorderRadius.circular(10),
@@ -929,17 +700,24 @@ class _MutasiScreenState extends State<MutasiScreen> {
                   isSelected
                       ? Icons.radio_button_checked
                       : Icons.radio_button_off,
-                  color: isSelected ? primaryBlue : secondaryTextColor,
+                  color: isSelected
+                      ? primaryBlue
+                      : secondaryTextColor,
                   size: 20,
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  options[index],
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight:
-                        isSelected ? FontWeight.w600 : FontWeight.normal,
-                    color: isSelected ? primaryBlue : textColor,
+                Expanded(
+                  child: Text(
+                    options[index],
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: isSelected
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                      color: isSelected
+                          ? primaryBlue
+                          : textColor,
+                    ),
                   ),
                 ),
               ],
@@ -950,20 +728,23 @@ class _MutasiScreenState extends State<MutasiScreen> {
     });
   }
 
-  /// Membangun widget pemilihan rentang tanggal khusus.
-  Widget _buildCustomDateRange(
-    DateTime? customStart,
-    DateTime? customEnd,
-    void Function(DateTime? start, DateTime? end) onChange,
-  ) {
-    final dateFormat = DateFormat('dd MMM yyyy', 'id_ID');
+  // ============================================================
+  // DOWNLOAD PDF: RENTANG TANGGAL KHUSUS
+  // ============================================================
 
+  Widget _buildCustomDateRange({
+    required DateTime? customStart,
+    required DateTime? customEnd,
+    required void Function(DateTime? start, DateTime? end) onChange,
+  }) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: lightBlue,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: borderColor.withValues(alpha: 0.4)),
+        border: Border.all(
+          color: borderColor.withValues(alpha: 0.4),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -982,55 +763,111 @@ class _MutasiScreenState extends State<MutasiScreen> {
               Expanded(
                 child: _buildDatePickerButton(
                   label: 'Dari',
-                  value: customStart != null
-                      ? dateFormat.format(customStart)
-                      : 'Pilih',
+                  value: customStart == null
+                      ? 'Pilih'
+                      : _formatDateForPicker(customStart),
                   onTap: () async {
+                    final now = DateTime.now();
+                    final today = _dateOnly(now);
+
+                    final initialDate = customStart == null
+                        ? today
+                        : _dateOnly(customStart);
+
                     final picked = await showDatePicker(
                       context: context,
-                      initialDate: customStart ?? DateTime.now(),
+                      initialDate: initialDate.isAfter(today)
+                          ? today
+                          : initialDate,
                       firstDate: DateTime(2020),
-                      lastDate: DateTime.now(),
-                      locale: const Locale('id', 'ID'),
+                      lastDate: today,
                     );
-                    if (picked != null) {
-                      onChange(picked, customEnd);
-                    }
+
+                    if (picked == null) return;
+
+                    final start = _dateOnly(picked);
+                    final end = customEnd == null
+                        ? null
+                        : _dateOnly(customEnd);
+
+                    onChange(
+                      start,
+                      end != null && end.isBefore(start) ? null : end,
+                    );
                   },
                 ),
               ),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Icon(Icons.arrow_forward, size: 16, color: secondaryTextColor),
+                child: Icon(
+                  Icons.arrow_forward,
+                  size: 16,
+                  color: secondaryTextColor,
+                ),
               ),
               Expanded(
                 child: _buildDatePickerButton(
                   label: 'Sampai',
-                  value: customEnd != null
-                      ? dateFormat.format(customEnd)
-                      : 'Pilih',
+                  value: customEnd == null
+                      ? 'Pilih'
+                      : _formatDateForPicker(customEnd),
                   onTap: () async {
+                    final now = DateTime.now();
+                    final today = _dateOnly(now);
+
+                    final start = customStart == null
+                        ? DateTime(2020)
+                        : _dateOnly(customStart);
+
+                    final initial = customEnd == null
+                        ? today
+                        : _dateOnly(customEnd);
+
+                    final safeInitial = initial.isBefore(start)
+                        ? start
+                        : initial.isAfter(today)
+                            ? today
+                            : initial;
+
+                    if (start.isAfter(today)) {
+                      _showMessage('Tanggal awal tidak boleh di masa depan.');
+                      return;
+                    }
+
                     final picked = await showDatePicker(
                       context: context,
-                      initialDate: customEnd ?? DateTime.now(),
-                      firstDate: customStart ?? DateTime(2020),
-                      lastDate: DateTime.now(),
-                      locale: const Locale('id', 'ID'),
+                      initialDate: safeInitial,
+                      firstDate: start,
+                      lastDate: today,
                     );
-                    if (picked != null) {
-                      onChange(customStart, picked);
-                    }
+
+                    if (picked == null) return;
+
+                    onChange(
+                      customStart,
+                      _dateOnly(picked),
+                    );
                   },
                 ),
               ),
             ],
           ),
+          if (customStart != null && customEnd != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Periode: ${_formatDateForPicker(customStart)} – '
+              '${_formatDateForPicker(customEnd)}',
+              style: const TextStyle(
+                fontSize: 11,
+                color: secondaryTextColor,
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  /// Tombol pemilih tanggal individual.
   Widget _buildDatePickerButton({
     required String label,
     required String value,
@@ -1040,7 +877,10 @@ class _MutasiScreenState extends State<MutasiScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 10,
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
@@ -1057,20 +897,24 @@ class _MutasiScreenState extends State<MutasiScreen> {
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 3),
             Row(
               children: [
-                const Icon(Icons.calendar_today, size: 13, color: primaryBlue),
-                const SizedBox(width: 4),
+                const Icon(
+                  Icons.calendar_today,
+                  size: 13,
+                  color: primaryBlue,
+                ),
+                const SizedBox(width: 5),
                 Expanded(
                   child: Text(
                     value,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: FontWeight.w600,
                       color: textColor,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
@@ -1081,118 +925,218 @@ class _MutasiScreenState extends State<MutasiScreen> {
     );
   }
 
-  /// Menghitung rentang tanggal berdasarkan opsi yang dipilih pengguna.
+  // ============================================================
+  // DOWNLOAD PDF: VALIDASI PERIODE
+  // ============================================================
+
   (DateTime, DateTime)? _resolveDateRange(
     int option,
     DateTime? customStart,
     DateTime? customEnd,
   ) {
     final now = DateTime.now();
+    final today = _dateOnly(now);
+
     switch (option) {
-      case 0: // Bulan Ini
-        return (DateTime(now.year, now.month, 1), now);
-      case 1: // Bulan Lalu
-        final lastMonth = DateTime(now.year, now.month - 1, 1);
-        final endOfLastMonth = DateTime(now.year, now.month, 0);
-        return (lastMonth, endOfLastMonth);
-      case 2: // 3 Bulan Terakhir
-        final threeMonthsAgo = DateTime(now.year, now.month - 3, now.day);
-        return (threeMonthsAgo, now);
-      case 3: // Tahun Ini
-        return (DateTime(now.year, 1, 1), now);
-      case 4: // Custom
-        if (customStart == null || customEnd == null) return null;
-        if (customStart.isAfter(customEnd)) return null;
-        return (customStart, customEnd);
+      case 0:
+        return (
+          DateTime(today.year, today.month, 1),
+          today,
+        );
+
+      case 1:
+        final start = DateTime(today.year, today.month - 1, 1);
+        final end = DateTime(today.year, today.month, 0);
+
+        return (start, end);
+
+      case 2:
+        final start = DateTime(today.year, today.month - 2, 1);
+
+        return (start, today);
+
+      case 3:
+        return (
+          DateTime(today.year, 1, 1),
+          today,
+        );
+
+      case 4:
+        if (customStart == null || customEnd == null) {
+          return null;
+        }
+
+        final start = _dateOnly(customStart);
+        final end = _dateOnly(customEnd);
+
+        if (start.isAfter(end) || end.isAfter(today)) {
+          return null;
+        }
+
+        return (start, end);
+
       default:
         return null;
     }
   }
 
-  /// Mengeksekusi proses unduh laporan mutasi rekening.
-  Future<void> _executeDownload(DateTime startDate, DateTime endDate) async {
-    if (_isDownloading) return;
+  // ============================================================
+  // DOWNLOAD PDF: EKSEKUSI
+  // ============================================================
 
-    setState(() => _isDownloading = true);
+  Future<void> _executeDownload(
+    DateTime startDate,
+    DateTime endDate,
+  ) async {
+    if (_isDownloading || !mounted) return;
+
+    final start = _dateOnly(startDate);
+    final end = _dateOnly(endDate);
+    final today = _dateOnly(DateTime.now());
+
+    if (start.isAfter(end) || end.isAfter(today)) {
+      _showMessage(
+        'Rentang tanggal laporan tidak valid.',
+        backgroundColor: dangerColor,
+      );
+      return;
+    }
+
+    setState(() {
+      _isDownloading = true;
+    });
 
     try {
       final bytes = await _customerService.downloadAccountStatement(
-        startDate: startDate,
-        endDate: endDate,
+        startDate: start,
+        endDate: end,
       );
 
       if (!mounted) return;
 
-      // Simpan file PDF ke direktori dokumen aplikasi
-      final dir = await getApplicationDocumentsDirectory();
-      final accountNumber = _account?.accountNumber ?? 'unknown';
-      final startStr = DateFormat('yyyy-MM-dd').format(startDate);
-      final endStr = DateFormat('yyyy-MM-dd').format(endDate);
-      final filename = 'Mutasi_${accountNumber}_${startStr}_$endStr.pdf';
-      final filePath = '${dir.path}/$filename';
-
-      final file = File(filePath);
-      await file.writeAsBytes(bytes);
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Laporan mutasi berhasil diunduh.'),
-          backgroundColor: successColor,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'Buka File',
-            textColor: Colors.white,
-            onPressed: () async {
-              await OpenFilex.open(filePath);
-            },
-          ),
-        ),
-      );
-    } on CustomerApiException catch (e) {
-      if (!mounted) return;
-
-      String message;
-      if (e.statusCode == 401) {
-        message = 'Sesi login berakhir. Silakan login kembali.';
-      } else if (e.statusCode == 403) {
-        message = 'Akses laporan mutasi tidak diizinkan.';
-      } else if (e.statusCode == 422) {
-        message = e.message;
-      } else {
-        message = 'Gagal mengunduh laporan. Silakan coba kembali.';
+      if (bytes.isEmpty) {
+        throw Exception('Server tidak mengembalikan file PDF.');
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: dangerColor,
-        ),
+      // Simpan PDF pada direktori dokumen privat aplikasi.
+      final directory = await getApplicationDocumentsDirectory();
+
+      final accountNumber = (_account?.accountNumber ?? 'unknown')
+          .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+
+      final startString = DateFormat('yyyy-MM-dd').format(start);
+      final endString = DateFormat('yyyy-MM-dd').format(end);
+
+      final filename =
+          'Mutasi_${accountNumber}_${startString}_$endString.pdf';
+
+      final file = File('${directory.path}/$filename');
+
+      await file.writeAsBytes(bytes, flush: true);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('Laporan mutasi berhasil disimpan.'),
+            backgroundColor: successColor,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Buka PDF',
+              textColor: Colors.white,
+              onPressed: () {
+                _openStatementFile(file);
+              },
+            ),
+          ),
+        );
+    } on CustomerApiException catch (error) {
+      if (!mounted) return;
+
+      final String message;
+
+      switch (error.statusCode) {
+        case 401:
+          message = 'Sesi login berakhir. Silakan login kembali.';
+          break;
+
+        case 403:
+          message = 'Akses laporan mutasi tidak diizinkan.';
+          break;
+
+        case 422:
+          message = error.message;
+          break;
+
+        default:
+          message = 'Gagal mengunduh laporan. Silakan coba kembali.';
+      }
+
+      _showMessage(
+        message,
+        backgroundColor: dangerColor,
       );
     } on SocketException {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content:
-              Text('Koneksi internet bermasalah. Silakan coba kembali.'),
-          backgroundColor: dangerColor,
-        ),
+
+      _showMessage(
+        'Koneksi internet bermasalah. Silakan coba kembali.',
+        backgroundColor: dangerColor,
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Gagal mengunduh laporan. Silakan coba kembali.'),
-          backgroundColor: dangerColor,
-        ),
+
+      debugPrint('Unduh laporan mutasi gagal: ${_cleanErrorMessage(error)}');
+
+      _showMessage(
+        'Gagal mengunduh atau menyimpan laporan PDF.',
+        backgroundColor: dangerColor,
       );
     } finally {
       if (mounted) {
-        setState(() => _isDownloading = false);
+        setState(() {
+          _isDownloading = false;
+        });
       }
     }
   }
+
+  Future<void> _openStatementFile(File file) async {
+    if (!await file.exists()) {
+      _showMessage(
+        'File laporan tidak ditemukan.',
+        backgroundColor: dangerColor,
+      );
+      return;
+    }
+
+    try {
+      final result = await OpenFilex.open(file.path);
+
+      if (!mounted) return;
+
+      if (result.type != ResultType.done) {
+        _showMessage(
+          'PDF tersimpan, tetapi tidak ada aplikasi yang dapat membukanya.',
+          backgroundColor: dangerColor,
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+
+      _showMessage(
+        'PDF tersimpan, tetapi gagal dibuka.',
+        backgroundColor: dangerColor,
+      );
+    }
+  }
+
+  // ============================================================
+  // APP BAR
+  // ============================================================
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
@@ -1228,7 +1172,9 @@ class _MutasiScreenState extends State<MutasiScreen> {
         Tooltip(
           message: 'Unduh Mutasi Rekening',
           child: IconButton(
-            onPressed: _isDownloading ? null : _showDownloadStatementSheet,
+            onPressed: _isDownloading
+                ? null
+                : _showDownloadStatementSheet,
             icon: _isDownloading
                 ? const SizedBox(
                     width: 20,
@@ -1250,6 +1196,10 @@ class _MutasiScreenState extends State<MutasiScreen> {
     );
   }
 
+  // ============================================================
+  // BUILD UTAMA
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -1257,7 +1207,9 @@ class _MutasiScreenState extends State<MutasiScreen> {
         backgroundColor: surfaceColor,
         appBar: _buildAppBar(),
         body: const Center(
-          child: CircularProgressIndicator(color: primaryBlue),
+          child: CircularProgressIndicator(
+            color: primaryBlue,
+          ),
         ),
         bottomNavigationBar: _buildBottomNavigation(),
       );
@@ -1282,14 +1234,19 @@ class _MutasiScreenState extends State<MutasiScreen> {
                 Text(
                   _errorMessage!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: textColor, fontSize: 14),
+                  style: const TextStyle(
+                    color: textColor,
+                    fontSize: 14,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: _loadData,
                   icon: const Icon(Icons.refresh),
                   label: const Text('Coba Lagi'),
-                  style: OutlinedButton.styleFrom(foregroundColor: primaryBlue),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: primaryBlue,
+                  ),
                 ),
               ],
             ),
@@ -1311,147 +1268,15 @@ class _MutasiScreenState extends State<MutasiScreen> {
           onRefresh: _loadData,
           color: primaryBlue,
           child: CustomScrollView(
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            keyboardDismissBehavior:
+                ScrollViewKeyboardDismissBehavior.onDrag,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               // Ringkasan saldo rekening.
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-                  child: Container(
-                    padding: const EdgeInsets.all(15),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFE2E7FF)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: darkBlue.withValues(alpha: 0.04),
-                          blurRadius: 12,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 42,
-                          height: 42,
-                          decoration: BoxDecoration(
-                            color: lightBlue,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.account_balance_wallet_outlined,
-                            color: primaryBlue,
-                            size: 23,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'SALDO REKENING',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 1,
-                                  color: secondaryTextColor,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _isBalanceVisible
-                                    ? _formatRupiah(_account?.balance ?? 0)
-                                    : 'Rp •••••••',
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.bold,
-                                  color: textColor,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(width: 8),
-
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const Text(
-                              'No. Rekening',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: secondaryTextColor,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            InkWell(
-                              onTap: _copyAccountNumber,
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: lightBlue,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        _account?.accountNumber ?? '-',
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: primaryBlue,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    const Icon(
-                                      Icons.copy_rounded,
-                                      size: 13,
-                                      color: primaryBlue,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(width: 2),
-
-                        IconButton(
-                          tooltip: _isBalanceVisible
-                              ? 'Sembunyikan saldo'
-                              : 'Tampilkan saldo',
-                          onPressed: () {
-                            setState(() {
-                              _isBalanceVisible = !_isBalanceVisible;
-                            });
-                          },
-                          visualDensity: VisualDensity.compact,
-                          icon: Icon(
-                            _isBalanceVisible
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            size: 18,
-                            color: secondaryTextColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  child: _buildBalanceCard(),
                 ),
               ),
 
@@ -1465,151 +1290,54 @@ class _MutasiScreenState extends State<MutasiScreen> {
                       children: [
                         _filterButton('Semua', 0),
                         const SizedBox(width: 8),
-                        _filterButton('Setoran', 1, dotColor: successColor),
+                        _filterButton(
+                          'Setoran',
+                          1,
+                          dotColor: successColor,
+                        ),
                         const SizedBox(width: 8),
-                        _filterButton('Penarikan', 2, dotColor: dangerColor),
+                        _filterButton(
+                          'Penarikan',
+                          2,
+                          dotColor: dangerColor,
+                        ),
                       ],
                     ),
                   ),
                 ),
               ),
 
-              // Pencarian dan pemilihan periode.
+              // Pencarian dan filter periode.
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _searchController,
-                          onChanged: (_) => setState(() {}),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: textColor,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'Cari transaksi...',
-                            hintStyle: const TextStyle(
-                              color: secondaryTextColor,
-                              fontSize: 12,
-                            ),
-                            prefixIcon: const Icon(
-                              Icons.search_rounded,
-                              size: 20,
-                              color: secondaryTextColor,
-                            ),
-                            suffixIcon: _searchController.text.isNotEmpty
-                                ? IconButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        _searchController.clear();
-                                      });
-                                    },
-                                    icon: const Icon(
-                                      Icons.close_rounded,
-                                      size: 17,
-                                    ),
-                                  )
-                                : null,
-                            filled: true,
-                            fillColor: Colors.white,
-                            contentPadding: const EdgeInsets.symmetric(
-                              vertical: 10,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: borderColor),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFE2E7FF),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: primaryBlue),
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(width: 8),
-
-                      InkWell(
-                        onTap: _showPeriodPicker,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 13,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E7FF)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.calendar_today_rounded,
-                                size: 15,
-                                color: primaryBlue,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                _selectedPeriod,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: textColor,
-                                ),
-                              ),
-                              const SizedBox(width: 3),
-                              const Icon(
-                                Icons.expand_more_rounded,
-                                size: 16,
-                                color: secondaryTextColor,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(width: 6),
-
-                      IconButton(
-                        tooltip: 'Muat ulang data',
-                        onPressed: _loadData,
-                        style: IconButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: secondaryTextColor,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: const BorderSide(color: Color(0xFFE2E7FF)),
-                          ),
-                        ),
-                        icon: const Icon(Icons.refresh_rounded, size: 19),
-                      ),
-                    ],
-                  ),
+                  child: _buildSearchAndFilters(),
                 ),
               ),
 
-              // Daftar transaksi atau kondisi kosong.
+              // Daftar transaksi.
               if (transactions.isEmpty)
-                SliverToBoxAdapter(child: _buildEmptyState())
+                SliverToBoxAdapter(
+                  child: _buildEmptyState(),
+                )
               else
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
                   sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final dateKey = groupedTransactions.keys.elementAt(index);
-                      final items = groupedTransactions[dateKey]!;
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final dateKey =
+                            groupedTransactions.keys.elementAt(index);
 
-                      return _buildTransactionGroup(dateKey, items);
-                    }, childCount: groupedTransactions.length),
+                        final items = groupedTransactions[dateKey]!;
+
+                        return _buildTransactionGroup(
+                          dateKey,
+                          items,
+                        );
+                      },
+                      childCount: groupedTransactions.length,
+                    ),
                   ),
                 ),
 
@@ -1622,7 +1350,9 @@ class _MutasiScreenState extends State<MutasiScreen> {
                     decoration: BoxDecoration(
                       color: lightBlue.withValues(alpha: 0.7),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFE2E7FF)),
+                      border: Border.all(
+                        color: const Color(0xFFE2E7FF),
+                      ),
                     ),
                     child: const Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1652,13 +1382,290 @@ class _MutasiScreenState extends State<MutasiScreen> {
           ),
         ),
       ),
-
-      // Navigasi bawah.
       bottomNavigationBar: _buildBottomNavigation(),
     );
   }
 
-  Widget _filterButton(String label, int index, {Color? dotColor}) {
+  // ============================================================
+  // KARTU SALDO
+  // ============================================================
+
+  Widget _buildBalanceCard() {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE2E7FF),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: darkBlue.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: lightBlue,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.account_balance_wallet_outlined,
+              color: primaryBlue,
+              size: 23,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'SALDO REKENING',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1,
+                    color: secondaryTextColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _isBalanceVisible
+                      ? _formatRupiah(_account?.balance ?? 0)
+                      : 'Rp •••••••',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                const Text(
+                  'No. Rekening',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: secondaryTextColor,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                InkWell(
+                  onTap: _copyAccountNumber,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: lightBlue,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _account?.accountNumber ?? '-',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: primaryBlue,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(
+                          Icons.copy_rounded,
+                          size: 13,
+                          color: primaryBlue,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 2),
+          IconButton(
+            tooltip: _isBalanceVisible
+                ? 'Sembunyikan saldo'
+                : 'Tampilkan saldo',
+            onPressed: () {
+              setState(() {
+                _isBalanceVisible = !_isBalanceVisible;
+              });
+            },
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              _isBalanceVisible
+                  ? Icons.visibility_outlined
+                  : Icons.visibility_off_outlined,
+              size: 18,
+              color: secondaryTextColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // PENCARIAN DAN FILTER
+  // ============================================================
+
+  Widget _buildSearchAndFilters() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: _searchController,
+            onChanged: (_) => setState(() {}),
+            style: const TextStyle(
+              fontSize: 12,
+              color: textColor,
+            ),
+            decoration: InputDecoration(
+              hintText: 'Cari transaksi...',
+              hintStyle: const TextStyle(
+                color: secondaryTextColor,
+                fontSize: 12,
+              ),
+              prefixIcon: const Icon(
+                Icons.search_rounded,
+                size: 20,
+                color: secondaryTextColor,
+              ),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _searchController.clear();
+                        });
+                      },
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        size: 17,
+                      ),
+                    )
+                  : null,
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: borderColor,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: Color(0xFFE2E7FF),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(
+                  color: primaryBlue,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        InkWell(
+          onTap: _showPeriodPicker,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 13,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFE2E7FF),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.calendar_today_rounded,
+                  size: 15,
+                  color: primaryBlue,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  _selectedPeriod,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                const Icon(
+                  Icons.expand_more_rounded,
+                  size: 16,
+                  color: secondaryTextColor,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        IconButton(
+          tooltip: 'Muat ulang data',
+          onPressed: _loadData,
+          style: IconButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: secondaryTextColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(
+                color: Color(0xFFE2E7FF),
+              ),
+            ),
+          ),
+          icon: const Icon(
+            Icons.refresh_rounded,
+            size: 19,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // TOMBOL FILTER JENIS
+  // ============================================================
+
+  Widget _filterButton(
+    String label,
+    int index, {
+    Color? dotColor,
+  }) {
     final isSelected = _selectedFilter == index;
 
     return InkWell(
@@ -1669,12 +1676,17 @@ class _MutasiScreenState extends State<MutasiScreen> {
       },
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
         decoration: BoxDecoration(
           color: isSelected ? primaryBlue : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? primaryBlue : const Color(0xFFE2E7FF),
+            color: isSelected
+                ? primaryBlue
+                : const Color(0xFFE2E7FF),
           ),
           boxShadow: isSelected
               ? [
@@ -1705,7 +1717,9 @@ class _MutasiScreenState extends State<MutasiScreen> {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: isSelected ? Colors.white : secondaryTextColor,
+                color: isSelected
+                    ? Colors.white
+                    : secondaryTextColor,
               ),
             ),
           ],
@@ -1713,6 +1727,10 @@ class _MutasiScreenState extends State<MutasiScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // GRUP TRANSAKSI
+  // ============================================================
 
   Widget _buildTransactionGroup(
     String dateKey,
@@ -1723,7 +1741,7 @@ class _MutasiScreenState extends State<MutasiScreen> {
         : dateKey;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 0),
+      padding: const EdgeInsets.only(bottom: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1740,7 +1758,10 @@ class _MutasiScreenState extends State<MutasiScreen> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFDAE2FD),
                   borderRadius: BorderRadius.circular(20),
@@ -1756,18 +1777,18 @@ class _MutasiScreenState extends State<MutasiScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 9),
-
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(17),
-              border: Border.all(color: const Color(0xFFE2E7FF)),
+              border: Border.all(
+                color: const Color(0xFFE2E7FF),
+              ),
             ),
             child: Column(
               children: [
-                for (int i = 0; i < transactions.length; i++) ...[
+                for (var i = 0; i < transactions.length; i++) ...[
                   if (i > 0)
                     const Divider(
                       height: 1,
@@ -1785,17 +1806,24 @@ class _MutasiScreenState extends State<MutasiScreen> {
     );
   }
 
-  Widget _buildTransactionCard(CustomerTransaction transaction) {
+  // ============================================================
+  // KARTU TRANSAKSI
+  // ============================================================
+
+  Widget _buildTransactionCard(
+    CustomerTransaction transaction,
+  ) {
     final isCredit = transaction.transactionType == 'deposit';
-    final isCancelled = transaction.status.toLowerCase() == 'cancelled';
-    final amount = transaction.amount;
+    final isCancelled =
+        transaction.status.toLowerCase() == 'cancelled';
+
     final status = _statusStyle(transaction);
 
-    final Color transactionColor = isCancelled
+    final transactionColor = isCancelled
         ? const Color(0xFFDC2626)
         : isCredit
-        ? successColor
-        : dangerColor;
+            ? successColor
+            : dangerColor;
 
     return Material(
       color: Colors.transparent,
@@ -1814,23 +1842,21 @@ class _MutasiScreenState extends State<MutasiScreen> {
                   color: isCancelled
                       ? const Color(0xFFFEE2E2)
                       : isCredit
-                      ? const Color(0xFFECFDF5)
-                      : const Color(0xFFFFF1F2),
+                          ? const Color(0xFFECFDF5)
+                          : const Color(0xFFFFF1F2),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
                   isCancelled
                       ? Icons.cancel_outlined
                       : isCredit
-                      ? Icons.arrow_downward_rounded
-                      : Icons.arrow_upward_rounded,
+                          ? Icons.arrow_downward_rounded
+                          : Icons.arrow_upward_rounded,
                   color: transactionColor,
                   size: 21,
                 ),
               ),
-
               const SizedBox(width: 12),
-
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1847,7 +1873,8 @@ class _MutasiScreenState extends State<MutasiScreen> {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      '${_formatDate(transaction.transactionDate)} • ${_formatTime(transaction.transactionDate)} WIB',
+                      '${_formatDate(transaction.transactionDate)} • '
+                      '${_formatTime(transaction.transactionDate)} WIB',
                       style: const TextStyle(
                         fontSize: 10,
                         color: secondaryTextColor,
@@ -1875,14 +1902,15 @@ class _MutasiScreenState extends State<MutasiScreen> {
                   ],
                 ),
               ),
-
               const SizedBox(width: 8),
-
               Flexible(
                 child: Text(
                   isCancelled
-                      ? 'Dibatalkan\n${_formatRupiah(amount)}'
-                      : _formatTransactionAmount(amount, isCredit: isCredit),
+                      ? 'Dibatalkan\n${_formatRupiah(transaction.amount)}'
+                      : _formatTransactionAmount(
+                          transaction.amount,
+                          isCredit: isCredit,
+                        ),
                   textAlign: TextAlign.end,
                   maxLines: 2,
                   style: TextStyle(
@@ -1899,16 +1927,25 @@ class _MutasiScreenState extends State<MutasiScreen> {
     );
   }
 
+  // ============================================================
+  // KONDISI KOSONG
+  // ============================================================
+
   Widget _buildEmptyState() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 30),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 22,
+          vertical: 30,
+        ),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE2E7FF)),
+          border: Border.all(
+            color: const Color(0xFFE2E7FF),
+          ),
         ),
         child: Column(
           children: [
@@ -1968,6 +2005,10 @@ class _MutasiScreenState extends State<MutasiScreen> {
     );
   }
 
+  // ============================================================
+  // NAVIGASI BAWAH
+  // ============================================================
+
   Widget _buildBottomNavigation() {
     const destinations = [
       (label: 'Beranda', icon: Icons.home_outlined),
@@ -1976,12 +2017,18 @@ class _MutasiScreenState extends State<MutasiScreen> {
       (label: 'Profil', icon: Icons.person_outline_rounded),
     ];
 
-    final hasPending = _transactions.any((t) => t.isPending);
+    final hasPending = _transactions.any((transaction) {
+      return transaction.isPending;
+    });
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        border: const Border(top: BorderSide(color: Color(0xFFE2E7FF))),
+        border: const Border(
+          top: BorderSide(
+            color: Color(0xFFE2E7FF),
+          ),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.035),
@@ -1997,7 +2044,8 @@ class _MutasiScreenState extends State<MutasiScreen> {
           child: Row(
             children: List.generate(destinations.length, (index) {
               final destination = destinations[index];
-              final isSelected = _selectedNavigationIndex == index;
+              final isSelected =
+                  _selectedNavigationIndex == index;
 
               return Expanded(
                 child: InkWell(
@@ -2015,7 +2063,6 @@ class _MutasiScreenState extends State<MutasiScreen> {
                                 ? primaryBlue
                                 : secondaryTextColor,
                           ),
-
                           if (index == 2 && hasPending)
                             Positioned(
                               top: -2,
@@ -2039,7 +2086,9 @@ class _MutasiScreenState extends State<MutasiScreen> {
                           fontWeight: isSelected
                               ? FontWeight.bold
                               : FontWeight.w500,
-                          color: isSelected ? primaryBlue : secondaryTextColor,
+                          color: isSelected
+                              ? primaryBlue
+                              : secondaryTextColor,
                         ),
                       ),
                     ],
@@ -2049,6 +2098,414 @@ class _MutasiScreenState extends State<MutasiScreen> {
             }),
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// WIDGET DETAIL TRANSAKSI
+// Dipisahkan dari MutasiScreen agar state pembatalan terisolasi.
+// ============================================================
+
+class _TransactionDetailSheet extends StatefulWidget {
+  const _TransactionDetailSheet({
+    required this.transaction,
+    required this.customerService,
+    required this.formatDate,
+    required this.formatTime,
+    required this.formatRupiah,
+    required this.formatTransactionAmount,
+    required this.statusStyle,
+    required this.showMessage,
+    required this.onTransactionUpdated,
+  });
+
+  final CustomerTransaction transaction;
+  final CustomerService customerService;
+
+  final String Function(DateTime) formatDate;
+  final String Function(DateTime) formatTime;
+  final String Function(int) formatRupiah;
+
+  final String Function(
+    int, {
+    required bool isCredit,
+  }) formatTransactionAmount;
+
+  final ({Color bg, Color text, String label}) Function(
+    CustomerTransaction,
+  ) statusStyle;
+
+  final void Function(
+    String message, {
+    Color? backgroundColor,
+  }) showMessage;
+
+  final Future<void> Function() onTransactionUpdated;
+
+  @override
+  State<_TransactionDetailSheet> createState() =>
+      _TransactionDetailSheetState();
+}
+
+class _TransactionDetailSheetState
+    extends State<_TransactionDetailSheet> {
+  late Future<CustomerTransaction> _detailFuture;
+
+  CustomerTransaction? _refreshedTransaction;
+  bool _isCancelling = false;
+
+  CustomerTransaction get _currentTransaction {
+    return _refreshedTransaction ?? widget.transaction;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    _detailFuture = widget.customerService.getTransactionDetail(
+      widget.transaction.id,
+    );
+  }
+
+
+  Future<void> _cancelTransaction() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Batalkan Transaksi?'),
+          content: const Text(
+            'Apakah kamu yakin ingin membatalkan transaksi ini? '
+            'Pembatalan hanya dapat dilakukan jika transaksi masih '
+            'menunggu proses sesuai aturan sistem.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Tidak'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: FilledButton.styleFrom(
+                backgroundColor: dangerColor,
+              ),
+              child: const Text('Ya, Batalkan'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() {
+      _isCancelling = true;
+    });
+
+    try {
+      final cancelled = await widget.customerService.cancelTransaction(
+        _currentTransaction.id,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _refreshedTransaction = cancelled;
+        _detailFuture = Future.value(cancelled);
+        _isCancelling = false;
+      });
+
+      widget.showMessage(
+        'Transaksi berhasil dibatalkan.',
+        backgroundColor: successColor,
+      );
+
+      await widget.onTransactionUpdated();
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _isCancelling = false;
+      });
+
+      widget.showMessage(
+        error
+            .toString()
+            .replaceFirst('Exception: ', ''),
+        backgroundColor: dangerColor,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 560,
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
+        ),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(28),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: FutureBuilder<CustomerTransaction>(
+                future: _detailFuture,
+                initialData: widget.transaction,
+                builder: (context, snapshot) {
+                  final transaction =
+                      _refreshedTransaction ??
+                      snapshot.data ??
+                      widget.transaction;
+
+                  final isCredit =
+                      transaction.transactionType == 'deposit';
+
+                  final status = widget.statusStyle(transaction);
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 42,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: borderColor,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      Row(
+                        mainAxisAlignment:
+                            MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'TANDA TERIMA KAS',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                              color: secondaryTextColor,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: status.bg,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              status.label.toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: status.text,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (snapshot.connectionState ==
+                          ConnectionState.waiting)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: LinearProgressIndicator(
+                            minHeight: 2,
+                            color: primaryBlue,
+                          ),
+                        )
+                      else if (snapshot.hasError)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 12),
+                          child: Text(
+                            'Status terbaru tidak dapat dimuat. '
+                            'Data riwayat tetap ditampilkan.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: secondaryTextColor,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: lightBlue,
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Column(
+                          children: [
+                            const Text(
+                              'Nominal Transaksi',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: secondaryTextColor,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              widget.formatTransactionAmount(
+                                transaction.amount,
+                                isCredit: isCredit,
+                              ),
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: isCredit
+                                    ? successColor
+                                    : dangerColor,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              transaction.transactionTypeLabel,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: primaryBlue,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      _detailRow(
+                        'ID Transaksi',
+                        '#${transaction.id}',
+                      ),
+                      _detailRow(
+                        'Jenis Transaksi',
+                        transaction.transactionTypeLabel,
+                      ),
+                      _detailRow(
+                        'Status',
+                        status.label,
+                      ),
+                      _detailRow(
+                        'Tanggal',
+                        widget.formatDate(transaction.transactionDate),
+                      ),
+                      _detailRow(
+                        'Waktu Transaksi',
+                        '${widget.formatTime(transaction.transactionDate)} WIB',
+                        isLast: transaction.rejectionReason == null,
+                      ),
+                      if (transaction.rejectionReason != null)
+                        _detailRow(
+                          'Alasan',
+                          transaction.rejectionReason!,
+                          isLast: true,
+                        ),
+                      const SizedBox(height: 22),
+                      if (transaction.isPending &&
+                          !snapshot.hasError)
+                        FilledButton(
+                          onPressed: _isCancelling
+                              ? null
+                              : _cancelTransaction,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: dangerColor,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 15,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: _isCancelling
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text('Batalkan Transaksi'),
+                        ),
+                      const SizedBox(height: 10),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: primaryBlue,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 15,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text('Tutup Rincian'),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(
+    String label,
+    String value, {
+    bool isLast = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      decoration: BoxDecoration(
+        border: isLast
+            ? null
+            : const Border(
+                bottom: BorderSide(
+                  color: Color(0xFFE2E7FF),
+                ),
+              ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 11,
+                color: secondaryTextColor,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 6,
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: const TextStyle(
+                fontSize: 11,
+                color: textColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

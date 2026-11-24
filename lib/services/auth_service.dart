@@ -39,12 +39,26 @@ class AuthService {
         )
         .timeout(const Duration(seconds: 15));
 
+    if (response.body.trim().isEmpty) {
+      throw Exception('Server mengembalikan respons kosong (${response.statusCode}).');
+    }
+
     final dynamic decodedBody;
 
     try {
       decodedBody = jsonDecode(response.body);
     } on FormatException {
-      throw Exception('Server mengirim respons yang tidak valid.');
+      if (response.statusCode == 404 || response.statusCode == 405) {
+        throw Exception(
+          'Endpoint server tidak ditemukan (${response.statusCode}). Periksa konfigurasi alamat API.',
+        );
+      }
+      if (response.statusCode >= 500) {
+        throw Exception(
+          'Server sedang mengalami gangguan (${response.statusCode}). Silakan coba beberapa saat lagi.',
+        );
+      }
+      throw Exception('Server mengirim respons yang tidak valid (${response.statusCode}).');
     }
 
     if (decodedBody is! Map<String, dynamic>) {
@@ -52,7 +66,8 @@ class AuthService {
     }
 
     if (response.statusCode == 401) {
-      throw Exception('Username atau password salah.');
+      final message = decodedBody['message']?.toString();
+      throw Exception(message ?? 'Username atau password salah.');
     }
 
     if (response.statusCode == 403) {
@@ -65,7 +80,7 @@ class AuthService {
     if (response.statusCode != 200) {
       throw Exception(
         decodedBody['message']?.toString() ??
-            'Login gagal. Periksa koneksi dan server.',
+            'Login gagal (${response.statusCode}). Periksa koneksi dan server.',
       );
     }
 
